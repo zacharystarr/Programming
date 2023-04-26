@@ -1,0 +1,103 @@
+import sys 
+import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
+from datetime import datetime
+from openpyxl.styles import Font
+
+
+def excel_to_dataframe(worksheet):
+    data = worksheet.values
+    columns = next(data)
+    return pd.DataFrame(data, columns=columns)
+
+def remove_leading_zeroes(date_string):
+    date_string = str(date_string)
+    if date_string[0] == '0':
+        return date_string[1:]
+    return date_string
+
+# Read the CSV file name from command-line arguments
+if len(sys.argv) < 2:
+    print("Usage: python script_name.py csv_file_name.csv")
+    sys.exit(1)
+
+csv_file_name = sys.argv[1]
+
+
+# Read the Citibank CSV file into a pandas DataFrame
+df = df = pd.read_csv(csv_file_name, encoding='latin-1', na_values=[''])
+
+
+# Clean up the data in the DataFrame
+df['Debit'] = df['Debit'].fillna(0)
+df['Credit'] = df['Credit'].fillna(0)
+df['Amount'] = df['Debit'] + (-1 * df['Credit'])
+df['Type'] = df['Amount'].apply(lambda x: 'Expense' if x > 0 else 'Reimbursement')
+df['Amount'] = df['Amount'].abs()
+df = df[['Description', 'Amount', 'Date', 'Type']]
+df.columns = ['Name', 'Amount', 'Date', 'Type']
+
+# Remove leading zeroes from Date column
+df['Date'] = df['Date'].apply(remove_leading_zeroes)
+
+# Format the Date column
+df['Date'] = pd.to_datetime(df['Date'], format='%m/%d/%Y')
+
+# Rearrange the columns
+df = df[['Name', 'Amount', 'Date', 'Type']]
+
+# Add the Category, Sub Category, and Account columns
+df['Classification'] = ''
+df['Category'] = ''
+df['Account'] = 'Citi'
+
+# Load an existing workbook (assuming it already exists)
+workbook = load_workbook('Finances.xlsm', keep_vba=True)
+
+# Select a particular worksheet to write data to
+worksheet = workbook['Accounting']
+
+# Convert the existing worksheet data into a pandas DataFrame
+existing_data = excel_to_dataframe(worksheet)
+
+# Merge the existing data and the new data to check for duplicates
+combined_data = pd.concat([existing_data, df], ignore_index=True)
+duplicates = combined_data.duplicated(subset=['Name', 'Amount', 'Date'], keep=False)
+
+# Filter out the new data without duplicates
+new_data = df.loc[~duplicates.iloc[-df.shape[0]:].values]
+
+# To append new rows to the worksheet without overwriting existing data:
+start_row = worksheet.max_row + 1
+
+# Define the font style
+arial_10 = Font(name='Arial', size=10)
+
+# Iterate over the rows in the DataFrame and write them to the Excel worksheet
+for i, row in enumerate(new_data.itertuples(index=False)):
+    name_cell = worksheet.cell(row=start_row+i, column=1, value=row.Name)
+    name_cell.font = arial_10
+    
+    amount_cell = worksheet.cell(row=start_row+i, column=2, value=row.Amount)
+    amount_cell.number_format = '$#,##0.00'
+    amount_cell.font = arial_10
+    
+    date_cell = worksheet.cell(row=start_row+i, column=3, value=row.Date)
+    date_cell.number_format = 'MM/DD/YYYY'
+    date_cell.font = arial_10
+    
+    type_cell = worksheet.cell(row=start_row+i, column=4, value=row.Type)
+    type_cell.font = arial_10
+    
+    classification_cell = worksheet.cell(row=start_row+i, column=5, value=row.Classification)
+    classification_cell.font = arial_10
+    
+    category_cell = worksheet.cell(row=start_row+i, column=6, value=row.Category)
+    category_cell.font = arial_10
+    
+    account_cell = worksheet.cell(row=start_row+i, column=7, value=row.Account)
+    account_cell.font = arial_10
+
+# Save the Excel workbook
+workbook.save('Finances.xlsm')

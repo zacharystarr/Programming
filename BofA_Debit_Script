@@ -1,0 +1,111 @@
+import sys
+import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
+from datetime import datetime
+from openpyxl.styles import Font
+
+def excel_to_dataframe(worksheet):
+    data = worksheet.values
+    columns = next(data)
+    return pd.DataFrame(data, columns=columns)
+
+def determine_type(amount):
+    if amount > 2000:
+        return 'Income'
+    elif 0 < amount <= 2000:
+        return 'Reimbursement'
+    elif amount < 0:
+        return 'Expense'
+    else:
+        return 'Unknown'
+
+
+if len(sys.argv) < 2:
+    print("Usage: python script_name.py csv_file_name.csv")
+    sys.exit(1)
+
+csv_file_name = sys.argv[1]
+
+with open(csv_file_name, 'r', encoding='latin-1') as f:
+    header_line_index = 0
+    for line in f:
+        if line.strip().startswith("Date,Description,Amount"):
+            break
+        header_line_index += 1
+
+df = pd.read_csv(
+    csv_file_name,
+    sep=',',
+    encoding="latin-1",
+    na_values=[""],
+    usecols=[0, 1, 2],
+    skiprows=header_line_index + 1,
+)
+
+# Clean up the data in the DataFrame
+df.columns = ['Date', 'Description', 'Amount']
+df['Amount'] = df['Amount'].replace(',', '', regex=True).astype(float)
+
+# Add the Type column based on the amount
+df['Type'] = df['Amount'].apply(determine_type)
+
+# Convert Amount to absolute value
+df['Amount'] = df['Amount'].abs()
+
+# Rename columns and reorder
+df.columns = ['Date', 'Name', 'Amount', 'Type']
+df = df[['Name', 'Amount', 'Date', 'Type']]
+
+# Format the Date column
+df['Date'] = pd.to_datetime(df['Date'], format='%m/%d/%Y')
+
+# Try to automatically detect the date format
+try:
+    df['Date'] = pd.to_datetime(df['Date'])
+except ValueError:
+    # If the automatic detection fails, use the original format
+    df['Date'] = pd.to_datetime(df['Date'], format='%m/%d/%Y', errors='coerce')
+
+df['Classification'] = ''
+df['Category'] = ''
+df['Account'] = 'BofA Debit'
+
+workbook = load_workbook('Finances.xlsm', keep_vba=True)
+worksheet = workbook['Accounting']
+existing_data = excel_to_dataframe(worksheet)
+
+combined_data = pd.concat([existing_data, df], ignore_index=True)
+duplicates = combined_data.duplicated(subset=['Name', 'Amount', 'Date'], keep=False)
+
+new_data = df.loc[~duplicates.iloc[-df.shape[0]:].values]
+
+start_row = worksheet.max_row + 1
+arial_10 = Font(name='Arial', size=10)
+
+for i, row in enumerate(new_data.itertuples(index=False)):
+    name_cell = worksheet.cell(row=start_row + i, column=1, value=row.Name)
+    name_cell.font = arial_10
+
+    amount_cell = worksheet.cell(row=start_row + i, column=2, value=row.Amount)
+    amount_cell.number_format = '$#,##0.00'
+    amount_cell.font = arial_10
+
+    date_cell = worksheet.cell(row=start_row + i, column=3, value=row.Date)
+    date_cell.number_format = 'MM/DD/YYYY'
+    date_cell.font = arial_10
+
+    type_cell = worksheet.cell(row=start_row + i, column=4, value=row.Type)
+    type_cell.font = arial_10
+
+    classification_cell = worksheet.cell(row=start_row + i, column=5, value=row.Classification)
+    classification_cell.font = arial_10
+
+    category_cell = worksheet.cell(row=start_row + i, column=6, value=row.Category)
+    category_cell.font = arial_10
+
+    account_cell = worksheet.cell(row=start_row + i, column=7, value=row.Account)
+    account_cell.font = arial_10
+
+
+workbook.save('Finances.xlsm')
